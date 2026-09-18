@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI PAPER TRADER / paper console</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">◇</span><div><strong>AI PAPER TRADER</strong><small>PAPER CONSOLE</small></div></div>
+      <nav class="nav" aria-label="Dashboard sections">
+        <a class="active" href="#overview">Overview</a>
+        <a href="#market">Market</a>
+        <a href="#decisions">AI decisions</a>
+        <a href="#trades">Paper trades</a>
+        <a href="#logs">Logs</a>
+        <a href="#config">Run & config</a>
+      </nav>
+      <div class="side-foot">
+        <div class="safe-label"><span class="dot green"></span> PAPER ONLY</div>
+        <p>Live order routing is disabled in code. This console never sends an order to Kite.</p>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div><span class="eyebrow">EQUITY / PAPER</span><h1>AI PAPER TRADER <span class="muted">·</span> realtime run</h1></div>
+        <div class="top-actions"><span id="runnerBadge" class="badge neutral">Checking…</span><span id="lastUpdated" class="last-updated">—</span></div>
+      </header>
+
+      <section id="overview" class="section first-section">
+        <div class="section-heading"><div><span class="eyebrow">CONTROL ROOM</span><h2>Overview</h2></div><div class="stream-note"><span class="dot green"></span><span id="streamText">Waiting for event stream</span></div></div>
+        <div class="metric-grid">
+          <article class="metric"><span>Last price</span><strong id="lastPrice">—</strong><small id="priceTime">No quote yet</small></article>
+          <article class="metric"><span>Daily P&amp;L</span><strong id="dailyPnl">₹0.00</strong><small id="pnlHint">Paper account</small></article>
+          <article class="metric"><span>Position</span><strong id="position">FLAT</strong><small id="positionQty">0 units</small></article>
+          <article class="metric"><span>AI action</span><strong id="aiAction">—</strong><small id="aiConfidence">Confidence —</small></article>
+          <article class="metric"><span>TypeSafe latency</span><strong id="latency">—</strong><small id="payload">State —</small></article>
+          <article class="metric"><span>Decisions</span><strong id="decisionCount">0</strong><small id="errorCount">0 errors</small></article>
+        </div>
+      </section>
+
+      <section id="market" class="section">
+        <div class="section-heading"><div><span class="eyebrow">OBSERVATIONS</span><h2>Market</h2></div><span class="subtle">Live ticks · refreshed every 1s · AI every completed minute</span></div>
+        <div class="chart-grid">
+          <article class="panel chart-panel"><div class="panel-head chart-head"><div><h3>Price</h3><span id="priceRange" class="subtle">—</span></div><div class="chart-controls"><button type="button" data-chart-window="60">60</button><button type="button" data-chart-window="300">300</button><button type="button" data-chart-window="600">All</button><button type="button" id="chartReset" title="Reset zoom and date filters">Reset</button></div></div><div class="date-controls"><label>From<input id="chartFromDate" type="date"></label><label>To<input id="chartToDate" type="date"></label></div><div class="chart-stage"><canvas id="priceChart" aria-label="equity price chart"></canvas><div id="priceTooltip" class="chart-tooltip" hidden></div></div></article>
+          <article class="panel chart-panel"><div class="panel-head"><div><h3>Volume</h3><span id="volumeRange" class="subtle">—</span></div><span class="subtle">Hover · wheel · drag</span></div><div class="chart-stage"><canvas id="volumeChart" aria-label="equity volume chart"></canvas><div id="volumeTooltip" class="chart-tooltip" hidden></div></div></article>
+        </div>
+        <div class="info-grid">
+          <article class="panel"><div class="panel-head"><h3>Last completed candle</h3><span id="candleTime" class="subtle">—</span></div><div class="key-grid" id="candleData"></div></article>
+          <article class="panel"><div class="panel-head"><h3>Data sent to AI</h3><span class="subtle">bounded snapshot</span></div><div class="key-grid" id="historyData"></div></article>
+        </div>
+      </section>
+
+      <section id="decisions" class="section">
+        <div class="section-heading"><div><span class="eyebrow">TYPED OUTPUT</span><h2>AI decisions</h2></div><div class="filters"><span class="subtle cost-note">Jev input $0.042 / 1M tokens · output free</span><label>Action <select id="actionFilter"><option value="all">All</option><option>buy</option><option>hold</option><option>exit</option><option>no_action</option></select></label><label>Regime <select id="regimeFilter"><option value="all">All</option><option>trending_up</option><option>trending_down</option><option>range</option><option>unstable</option></select></label><label>Min confidence <input id="confidenceFilter" type="number" min="0" max="1" step="0.05" value="0"></label></div></div>
+        <article class="panel table-panel"><div class="table-scroll"><table><thead><tr><th>Time</th><th>Action</th><th>Confidence</th><th>Buy support</th><th>Regime</th><th>Price</th><th>Latency</th><th>AI cost</th><th>Result</th></tr></thead><tbody id="decisionRows"><tr><td colspan="9" class="empty">No decisions yet.</td></tr></tbody></table></div></article>
+      </section>
+
+      <section id="trades" class="section">
+        <div class="section-heading"><div><span class="eyebrow">EXECUTION LEDGER</span><h2>Paper trades</h2></div><span class="subtle">Risk-authorized intents only</span></div>
+        <article class="panel table-panel"><div class="table-scroll"><table><thead><tr><th>Time</th><th>Side</th><th>Quantity</th><th>Price</th><th>Stop</th><th>Position after</th><th>Daily P&amp;L</th></tr></thead><tbody id="tradeRows"><tr><td colspan="7" class="empty">No paper trades yet.</td></tr></tbody></table></div></article>
+      </section>
+
+      <section id="logs" class="section">
+        <div class="section-heading"><div><span class="eyebrow">AUDIT TRAIL</span><h2>Logs & run history</h2></div><span id="runFile" class="subtle">—</span></div>
+        <div class="info-grid logs-grid">
+          <article class="panel log-panel"><div class="panel-head"><h3>Runner console</h3><label class="log-lines-control">Last lines<select id="logLines"><option value="20">20</option><option value="40">40</option><option value="80" selected>80</option><option value="160">160</option><option value="320">320</option><option value="640">640</option><option value="1000">1000</option></select></label></div><pre id="consoleLog">No console output yet.</pre></article>
+          <article class="panel table-panel"><div class="panel-head"><h3>Saved runs</h3><span class="subtle">newest first</span></div><div class="table-scroll"><table><thead><tr><th>Run</th><th>Mode</th><th>Decisions</th><th>Trades</th><th>P&amp;L</th><th>Updated</th></tr></thead><tbody id="runRows"><tr><td colspan="6" class="empty">No saved summaries yet.</td></tr></tbody></table></div></article>
+        </div>
+      </section>
+
+      <section id="config" class="section last-section">
+        <div class="section-heading"><div><span class="eyebrow">PAPER CONTROL PLANE</span><h2>Run, stop &amp; configure</h2></div><span class="badge warning">No live mode</span></div>
+        <article class="panel config-panel">
+          <form id="runForm" autocomplete="off">
+            <div class="config-columns">
+              <fieldset><legend>Run</legend><label>Mode<input value="Paper · Kite + TypeSafe" disabled></label><label>Capital (INR)<input name="capital" type="number" min="1" step="1000" value="100000"></label><div class="button-row"><button id="startButton" class="button primary" type="submit">Run paper loop</button><button id="stopButton" class="button danger" type="button">Stop everything</button></div><p class="form-note">Only paper trading is available. Stop sends an interrupt to this console’s runner and matching paper-only runner processes in this project.</p></fieldset>
+              <fieldset><legend>History &amp; AI request</legend><label>1m bars<input name="history_1m" type="number" min="0" max="10000" value="1000"></label><label>5m bars<input name="history_5m" type="number" min="0" max="10000" value="500"></label><label>Daily bars<input name="history_1d" type="number" min="0" max="5000" value="180"></label><label>Max state bytes<input name="max_history_bytes" type="number" min="0" max="1048576" value="32000"></label><label>Model<input name="model" value="jev-latest"></label><label>Timeout (ms)<input name="timeout_ms" type="number" min="1" value="8000"></label><label>Retries<input name="max_retries" type="number" min="0" max="5" value="1"></label><p class="form-note">32k state-byte budget targets more history while staying below Jev’s documented 32k state-token limit.</p></fieldset>
+              <fieldset><legend>Local risk rules</legend><label>Max position %<input name="max_position_value_percent" type="number" min="0" step="0.1" value="25"></label><label>Max daily loss %<input name="max_daily_loss_percent" type="number" min="0" step="0.1" value="1"></label><label>Max entries / day<input name="max_trades_per_day" type="number" min="0" value="5"></label><label>Stop loss %<input name="stop_loss_percent" type="number" min="0" step="0.1" value="1"></label><label>Max spread %<input name="max_spread_percent" type="number" min="0" step="0.01" value="0.15"></label><label>Min action confidence<input name="min_action_confidence" type="number" min="0" max="1" step="0.05" value="0.60"></label><label>Min buy support<input name="min_buy_support" type="number" min="0" max="1" step="0.05" value="0.60"></label><p class="form-note">Only these local risk rules can reject a TypeSafe action. Entry patterns are not implemented.</p></fieldset>
+            </div>
+            <fieldset class="credentials"><legend>Environment credentials <span class="legend-note">secrets never shown in logs</span></legend><div class="credential-grid"><label>Kite API key<input name="kite_api_key" type="password" placeholder="paste key"></label><label>Kite API secret<input name="kite_api_secret" type="password" placeholder="paste secret"></label><label>Kite access token<input name="kite_access_token" type="password" placeholder="paste access token"></label><label>TypeSafe API key<input name="typesafe_api_key" type="password" placeholder="paste key"></label></div><div class="button-row"><button id="kiteUrlButton" class="button" type="button">Get Kite login URL</button><button id="exchangeKiteButton" class="button" type="button">Exchange request token</button><button id="saveCredentialsButton" class="button primary" type="button">Save credentials</button><button id="showCredentialsButton" class="button" type="button">Show values</button><span id="credentialStatus" class="credential-status">Not saved in this browser</span><span id="kiteUrlResult" class="url-result"></span></div><label class="request-token-label">Fresh Kite request token<input id="kiteRequestToken" type="password" placeholder="paste request_token from redirect"></label><div class="remember-row"><label class="checkbox-label"><input id="rememberCredentials" type="checkbox"> Remember credentials on this browser</label><button id="clearSavedButton" class="text-button" type="button">Clear saved values</button></div><p class="form-note">Credentials are never saved while typing. Click Save credentials to store them in this browser; storage is local and unencrypted. Show values reveals them only on this page after an explicit click. The exchange button converts a fresh one-time <em>request_token</em> into the daily <em>access_token</em>.</p><div id="credentialDiagnostics" class="credential-diagnostics">API receipt diagnostics will appear after the next paper run.</div></fieldset>
+          </form>
+          <div id="controlMessage" class="control-message" role="status"></div>
+        </article>
+      </section>
+      <footer>AI paper console · local only · <span id="footerClock">—</span></footer>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
