@@ -10,12 +10,19 @@ import (
 	kitconnect "github.com/zerodha/gokiteconnect/v4"
 )
 
+// HistoricalProvider is the small adapter contract shared by the India and US
+// market-data implementations. Keeping it independent from a broker client
+// lets the runner use the same history seeding and retention logic everywhere.
+type HistoricalProvider interface {
+	Load(context.Context, uint32, string, time.Time, time.Time) ([]Bar, error)
+}
+
 // ResolveEquity finds a cash-equity instrument from the broker's instrument dump.
 // The token is never hardcoded because broker instrument tokens can change.
 func ResolveEquity(ctx context.Context, b broker.Broker, exchange, symbol string) (broker.Instrument, error) {
 	instruments, err := b.GetInstruments(ctx, exchange)
 	if err != nil {
-		return broker.Instrument{}, fmt.Errorf("load NSE instruments: %w", err)
+		return broker.Instrument{}, fmt.Errorf("load %s instruments: %w", exchange, err)
 	}
 	for _, instrument := range instruments {
 		if strings.EqualFold(instrument.Exchange, exchange) &&

@@ -145,22 +145,22 @@ type Order struct {
 
 // Position represents a trading position
 type Position struct {
-	TradingSymbol   string
-	Exchange        string
-	Product         Product
-	Quantity        int
-	OvernightQty    int
-	DayQuantity     int
-	BuyQuantity     int
-	SellQuantity    int
-	AveragePrice    float64
-	BuyPrice        float64
-	SellPrice       float64
-	LastPrice       float64
-	PnL             float64
-	DayPnL          float64
-	Multiplier      int
-	Value           float64
+	TradingSymbol string
+	Exchange      string
+	Product       Product
+	Quantity      int
+	OvernightQty  int
+	DayQuantity   int
+	BuyQuantity   int
+	SellQuantity  int
+	AveragePrice  float64
+	BuyPrice      float64
+	SellPrice     float64
+	LastPrice     float64
+	PnL           float64
+	DayPnL        float64
+	Multiplier    int
+	Value         float64
 }
 
 // TransactionType represents buy or sell

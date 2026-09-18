@@ -3,8 +3,8 @@
   let state = null;
 
   const html = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
-  const number = (value, digits = 2) => Number.isFinite(Number(value)) ? Number(value).toLocaleString('en-IN', { maximumFractionDigits: digits }) : '—';
-  const inr = (value) => `₹${number(value, 2)}`;
+  const number = (value, digits = 2) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(String(document.querySelector('[name="market"]')?.value || 'india').toLowerCase() === 'us' ? 'en-US' : 'en-IN', { maximumFractionDigits: digits }) : '—';
+  const inr = (value) => (String(state?.config?.market || document.querySelector('[name="market"]')?.value || 'india').toLowerCase() === 'us' ? `$${number(value, 2)}` : `₹${number(value, 2)}`);
   const pct = (value) => `${(Number(value || 0) * 100).toFixed(0)}%`;
   const istOptions = { timeZone: 'Asia/Kolkata', hour12: true };
   const time = (value) => {
@@ -21,7 +21,35 @@
   };
   const actionClass = (action) => String(action || '').replace(/[^a-z_]/g, '');
   const formStorageKey = 'ai-paper-trader.form.v1';
-  const credentialFields = ['kite_api_key', 'kite_api_secret', 'kite_access_token', 'typesafe_api_key'];
+  const credentialFields = ['kite_api_key', 'kite_api_secret', 'kite_access_token', 'alpaca_api_key', 'alpaca_api_secret', 'typesafe_api_key'];
+
+  function selectedMarket() { return String(document.querySelector('[name="market"]')?.value || 'india').toLowerCase(); }
+  function requiredCredentialFields() { return selectedMarket() === 'us' ? ['alpaca_api_key', 'alpaca_api_secret', 'typesafe_api_key'] : ['kite_api_key', 'kite_api_secret', 'kite_access_token', 'typesafe_api_key']; }
+
+  function setMarket(market, resetFields = true) {
+    market = market === 'us' ? 'us' : 'india';
+    const input = document.querySelector('[name="market"]');
+    const previous = input?.value;
+    if (input) input.value = market;
+    document.querySelectorAll('.market-tab').forEach((button) => { const active = button.dataset.market === market; button.classList.toggle('active', active); button.setAttribute('aria-selected', active ? 'true' : 'false'); });
+    $('marketLabel').value = market === 'us' ? 'US' : 'India';
+    $('indiaCredentials').hidden = market !== 'india';
+    $('usCredentials').hidden = market !== 'us';
+    $('kiteActions').hidden = market !== 'india';
+    $('requestTokenWrap').hidden = market !== 'india';
+    $('usProviderNote').hidden = market !== 'us';
+    const exchange = document.querySelector('[name="exchange"]');
+    const symbol = document.querySelector('[name="symbol"]');
+    if (resetFields && previous && previous !== market) {
+      exchange.value = market === 'us' ? 'NASDAQ' : 'NSE';
+      symbol.value = market === 'us' ? 'AAPL' : 'INFY';
+    }
+    $('topTicker').value = symbol?.value || '';
+    $('setupGuide').innerHTML = market === 'us'
+      ? '<strong>US setup</strong><span>1. Create a free Alpaca paper account and copy its paper API key and secret. 2. Enter a US venue and ticker (for example NASDAQ / AAPL). 3. Enter the TypeSafe key and save credentials. 4. Click Run paper loop. Free real-time coverage is IEX; historical bars use Alpaca’s IEX feed.</span>'
+      : '<strong>India setup</strong><span>1. Create a Kite Connect app and set its redirect URL. 2. Generate the login URL below and sign in. 3. Copy the fresh <em>request_token</em> from the redirect, exchange it for the daily access token, then save credentials. 4. Choose a ticker and click Run paper loop. Kite tokens are API-key-specific and usually expire each day.</span>';
+    if (resetFields) persistFormValues();
+  }
 
   function credentialInputs() {
     return credentialFields.map((key) => document.querySelector(`[name="${key}"]`)).filter(Boolean);
@@ -32,8 +60,9 @@
     if (!status) return;
     let values = {};
     try { values = JSON.parse(localStorage.getItem(formStorageKey) || '{}'); } catch (_) {}
-    const saved = values.remember_credentials === true && credentialFields.every((key) => String(values[key] || '').trim());
-    const entered = credentialInputs().every((input) => input.value.trim());
+    const required = requiredCredentialFields();
+    const saved = values.remember_credentials === true && required.every((key) => String(values[key] || '').trim());
+    const entered = required.every((key) => String(document.querySelector(`[name="${key}"]`)?.value || '').trim());
     status.textContent = saved ? 'Saved locally · values hidden' : entered ? 'Entered · not saved' : 'Not saved in this browser';
   }
 
@@ -98,6 +127,7 @@
         values.max_history_bytes = '32000';
         localStorage.setItem(formStorageKey, JSON.stringify(values));
       }
+      setMarket(values.market || 'us', false);
       updateCredentialStatus();
     } catch (_) {
       // Ignore malformed or unavailable local state and keep safe defaults.
@@ -120,14 +150,18 @@
     $('confidenceFilter').value = '0';
     $('logLines').value = '80';
     $('kiteUrlResult').textContent = '';
+    setMarket('us', true);
+    document.querySelector('[name="exchange"]').value = 'NASDAQ';
+    document.querySelector('[name="symbol"]').value = 'AAPL';
+    $('topTicker').value = 'AAPL';
     updateCredentialStatus();
     showMessage('Saved dashboard values cleared from this browser.', true);
   }
 
   function saveCredentials() {
-    const missing = credentialFields.filter((key) => !document.querySelector(`[name="${key}"]`).value.trim());
+    const missing = requiredCredentialFields().filter((key) => !document.querySelector(`[name="${key}"]`).value.trim());
     if (missing.length) {
-      showMessage('Enter all four credentials before saving them.', false);
+      showMessage(`Enter ${missing.length} required ${selectedMarket() === 'us' ? 'Alpaca/TypeSafe' : 'Kite/TypeSafe'} credential(s) before saving them.`, false);
       return;
     }
     $('rememberCredentials').checked = true;
@@ -164,6 +198,9 @@
     const liveTick = live.tick || {};
     const runner = data.runner || {};
     const config = data.config || {};
+    if (config.market) setMarket(config.market, false);
+    if (config.symbol && document.querySelector('[name="symbol"]')) { document.querySelector('[name="symbol"]').value = config.symbol; $('topTicker').value = config.symbol; }
+    if (config.exchange && document.querySelector('[name="exchange"]')) document.querySelector('[name="exchange"]').value = config.exchange;
     const running = Boolean(runner.running);
     $('runnerBadge').textContent = running ? `Running · ${runner.mode || 'paper'}` : 'Stopped';
     $('runnerBadge').className = `badge ${running ? 'success' : 'neutral'}`;
@@ -228,7 +265,7 @@
     const target = $('credentialDiagnostics');
     if (!target) return;
     const diagnostics = config.credential_diagnostics || {};
-    const labels = { kite_api_key: 'Kite key', kite_api_secret: 'Kite secret', kite_access_token: 'Kite token', typesafe_api_key: 'TypeSafe key' };
+    const labels = { kite_api_key: 'Kite key', kite_api_secret: 'Kite secret', kite_access_token: 'Kite token', alpaca_api_key: 'Alpaca key', alpaca_api_secret: 'Alpaca secret', typesafe_api_key: 'TypeSafe key' };
     const values = Object.keys(labels).map((key) => {
       const value = diagnostics[key] || {};
       if (!value.set) return `${labels[key]} missing`;
@@ -267,7 +304,7 @@
     $('runRows').innerHTML = runs.length ? runs.map((run) => {
       const account = run.account || {};
       const daily = run.daily_pnl ?? account.daily_pnl ?? 0;
-      return `<tr><td>${html(run.run_id || run.file || '—')}</td><td>${html(run.mode || '—')}</td><td>${number(run.decisions ?? '—', 0)}</td><td>${number(run.trades ?? account.trades_today ?? '—', 0)}</td><td>${html(inr(daily))}</td><td>${html(dateTime(run.updated_at))}</td></tr>`;
+      return `<tr><td>${html(run.run_id || run.file || '—')}</td><td>${html(run.market || '—')}</td><td>${html(run.symbol || '—')}</td><td>${number(run.decisions ?? '—', 0)}</td><td>${number(run.trades ?? account.trades_today ?? '—', 0)}</td><td>${html(inr(daily))}</td><td>${html(dateTime(run.updated_at))}</td></tr>`;
     }).join('') : '<tr><td colspan="6" class="empty">No saved summaries yet. The active run writes its summary on stop.</td></tr>';
   }
 
@@ -395,6 +432,9 @@
   function collectForm() {
     const form = $('runForm'); const payload = {};
     new FormData(form).forEach((value, key) => { payload[key] = credentialFields.includes(key) ? String(value).trim() : value; });
+    payload.market = selectedMarket();
+    payload.symbol = String($('topTicker').value || payload.symbol || '').trim().toUpperCase();
+    document.querySelector('[name="symbol"]').value = payload.symbol;
     ['capital','history_1m','history_5m','history_1d','max_history_bytes','timeout_ms','max_retries','max_position_value_percent','max_daily_loss_percent','max_trades_per_day','stop_loss_percent','max_spread_percent','min_action_confidence','min_buy_support'].forEach((key) => { payload[key] = Number(payload[key]); });
     return payload;
   }
@@ -469,7 +509,11 @@
   $('saveCredentialsButton').addEventListener('click', saveCredentials);
   $('showCredentialsButton').addEventListener('click', toggleCredentials);
   $('clearSavedButton').addEventListener('click', clearSavedValues);
+  document.querySelectorAll('.market-tab').forEach((button) => button.addEventListener('click', () => setMarket(button.dataset.market, true)));
+  $('topTicker').addEventListener('input', (event) => { document.querySelector('[name="symbol"]').value = event.target.value.toUpperCase(); persistFormValues(); });
+  document.querySelector('[name="symbol"]').addEventListener('input', (event) => { $('topTicker').value = event.target.value.toUpperCase(); });
   restoreFormValues();
+  setMarket(selectedMarket(), false);
   window.addEventListener('pageshow', normalizeLegacyHistoryBudgetInput);
   setTimeout(normalizeLegacyHistoryBudgetInput, 1000);
   document.querySelectorAll('#runForm [name]').forEach((input) => { input.addEventListener('input', persistFormValues); input.addEventListener('change', persistFormValues); });

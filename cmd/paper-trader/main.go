@@ -17,6 +17,8 @@ import (
 	"time"
 
 	papertrader "ai-paper-trader"
+	"ai-paper-trader/internal/broker"
+	"ai-paper-trader/internal/broker/alpaca"
 	"ai-paper-trader/internal/broker/kite"
 	"ai-paper-trader/internal/config"
 	"ai-paper-trader/pkg/logger"
@@ -24,12 +26,13 @@ import (
 	kiteconnect "github.com/zerodha/gokiteconnect/v4"
 )
 
-// This command is deliberately paper-first. It wires the new module to Kite
-// for market data and TypeSafe, but does not place live orders.
+// This command is deliberately paper-first. It wires one configured market
+// data provider to TypeSafe, but never places a live order.
 func main() {
-	capital := flag.Float64("capital", 10000, "paper account capital in INR")
+	capital := flag.Float64("capital", 10000, "paper account capital in the provider's currency")
 	paper := flag.Bool("paper", true, "keep paper mode enabled")
-	exchange := flag.String("exchange", papertrader.ExchangeNSE, "cash-equity exchange")
+	market := flag.String("market", papertrader.SupportedMarketUS, "market: india or us")
+	exchange := flag.String("exchange", "NASDAQ", "cash-equity exchange or venue")
 	symbol := flag.String("symbol", papertrader.DefaultTradingSymbol, "cash-equity trading symbol")
 	logDir := flag.String("log-dir", "runs", "directory for JSONL run logs and summaries")
 	history1m := flag.Int("history-1m", 1000, "paper-mode one-minute history bars sent to TypeSafe")
@@ -51,17 +54,32 @@ func main() {
 		fmt.Fprintln(os.Stderr, "live order execution is disabled; use -paper=true")
 		os.Exit(2)
 	}
+	selectedMarket := strings.ToLower(strings.TrimSpace(*market))
+	if selectedMarket != papertrader.SupportedMarketIndia && selectedMarket != papertrader.SupportedMarketUS {
+		fmt.Fprintln(os.Stderr, "market must be india or us")
+		os.Exit(2)
+	}
 	if strings.TrimSpace(*exchange) == "" || strings.TrimSpace(*symbol) == "" {
-		fmt.Fprintln(os.Stderr, "exchange and symbol are required")
+		fmt.Fprintln(os.Stderr, "exchange/venue and symbol are required")
 		os.Exit(2)
 	}
 
-	apiKey := os.Getenv("KITE_API_KEY")
-	apiSecret := os.Getenv("KITE_API_SECRET")
-	accessToken := os.Getenv("KITE_ACCESS_TOKEN")
+	kiteAPIKey := os.Getenv("KITE_API_KEY")
+	kiteAPISecret := os.Getenv("KITE_API_SECRET")
+	kiteAccessToken := os.Getenv("KITE_ACCESS_TOKEN")
+	alpacaAPIKey := os.Getenv("ALPACA_API_KEY")
+	alpacaAPISecret := os.Getenv("ALPACA_API_SECRET")
 	typeSafeKey := os.Getenv("TYPESAFE_API_KEY")
-	if apiKey == "" || apiSecret == "" || accessToken == "" || typeSafeKey == "" {
-		fmt.Fprintln(os.Stderr, "set KITE_API_KEY, KITE_API_SECRET, KITE_ACCESS_TOKEN, and TYPESAFE_API_KEY")
+	if typeSafeKey == "" {
+		fmt.Fprintln(os.Stderr, "set TYPESAFE_API_KEY")
+		os.Exit(2)
+	}
+	if selectedMarket == papertrader.SupportedMarketIndia && (kiteAPIKey == "" || kiteAPISecret == "" || kiteAccessToken == "") {
+		fmt.Fprintln(os.Stderr, "India market requires KITE_API_KEY, KITE_API_SECRET, and KITE_ACCESS_TOKEN")
+		os.Exit(2)
+	}
+	if selectedMarket == papertrader.SupportedMarketUS && (alpacaAPIKey == "" || alpacaAPISecret == "") {
+		fmt.Fprintln(os.Stderr, "US market requires ALPACA_API_KEY and ALPACA_API_SECRET")
 		os.Exit(2)
 	}
 
@@ -72,52 +90,75 @@ func main() {
 	}
 	defer log.Sync()
 	log.Infow("credential diagnostics",
-		"kite_api_key_set", apiKey != "", "kite_api_key_len", len(apiKey), "kite_api_key_sha256_12", credentialFingerprint(apiKey),
-		"kite_api_secret_set", apiSecret != "", "kite_api_secret_len", len(apiSecret), "kite_api_secret_sha256_12", credentialFingerprint(apiSecret),
-		"kite_access_token_set", accessToken != "", "kite_access_token_len", len(accessToken), "kite_access_token_sha256_12", credentialFingerprint(accessToken),
+		"market", selectedMarket,
+		"kite_api_key_set", kiteAPIKey != "", "kite_api_key_len", len(kiteAPIKey), "kite_api_key_sha256_12", credentialFingerprint(kiteAPIKey),
+		"kite_api_secret_set", kiteAPISecret != "", "kite_api_secret_len", len(kiteAPISecret), "kite_api_secret_sha256_12", credentialFingerprint(kiteAPISecret),
+		"kite_access_token_set", kiteAccessToken != "", "kite_access_token_len", len(kiteAccessToken), "kite_access_token_sha256_12", credentialFingerprint(kiteAccessToken),
+		"alpaca_api_key_set", alpacaAPIKey != "", "alpaca_api_key_len", len(alpacaAPIKey), "alpaca_api_key_sha256_12", credentialFingerprint(alpacaAPIKey),
+		"alpaca_api_secret_set", alpacaAPISecret != "", "alpaca_api_secret_len", len(alpacaAPISecret), "alpaca_api_secret_sha256_12", credentialFingerprint(alpacaAPISecret),
 		"typesafe_api_key_set", typeSafeKey != "", "typesafe_api_key_len", len(typeSafeKey), "typesafe_api_key_sha256_12", credentialFingerprint(typeSafeKey),
 	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	tickerConfig := config.TickerConfig{AutoReconnect: true, MaxReconnectDelay: 30 * time.Second, ReconnectMaxRetries: 10}
-	kiteClient := kite.NewClient(apiKey, apiSecret, log, false, tickerConfig)
-	kiteClient.SetAccessToken(accessToken)
-	if err := kiteClient.Connect(ctx); err != nil {
-		log.Fatalw("connect Kite", "error", err)
+	var instrument broker.Instrument
+	var ticks <-chan broker.Tick
+	var historical papertrader.HistoricalProvider
+	var disconnect func()
+	if selectedMarket == papertrader.SupportedMarketIndia {
+		tickerConfig := config.TickerConfig{AutoReconnect: true, MaxReconnectDelay: 30 * time.Second, ReconnectMaxRetries: 10}
+		indiaClient := kite.NewClient(kiteAPIKey, kiteAPISecret, log, false, tickerConfig)
+		indiaClient.SetAccessToken(kiteAccessToken)
+		if err := indiaClient.Connect(ctx); err != nil {
+			log.Fatalw("connect India market data", "error", err)
+		}
+		instrument, err = papertrader.ResolveEquity(ctx, indiaClient, *exchange, *symbol)
+		if err != nil {
+			log.Fatalw("resolve India equity", "exchange", *exchange, "symbol", *symbol, "error", err)
+		}
+		rawKite := kiteconnect.New(kiteAPIKey)
+		rawKite.SetAccessToken(kiteAccessToken)
+		if _, err := rawKite.GetUserProfile(); err != nil {
+			if strings.Contains(err.Error(), "Incorrect `api_key` or `access_token`") {
+				log.Fatalw("validate India credentials", "error", err, "hint", "Kite access tokens are API-key-specific and expire daily; generate a fresh token for the same API key")
+			}
+			log.Fatalw("validate India credentials", "error", err)
+		}
+		historical = papertrader.KiteHistoricalProvider{Client: rawKite}
+		ticks, err = indiaClient.SubscribeTicks(ctx, []uint32{instrument.InstrumentToken})
+		if err != nil {
+			log.Fatalw("subscribe India equity ticks", "symbol", instrument.TradingSymbol, "error", err)
+		}
+		disconnect = func() { _ = indiaClient.Disconnect() }
+	} else {
+		usClient := alpaca.NewClientFromEnv(alpacaAPIKey, alpacaAPISecret)
+		if err := usClient.Connect(ctx); err != nil {
+			log.Fatalw("connect US market data", "error", err)
+		}
+		instrument, err = usClient.ResolveEquity(ctx, *exchange, *symbol)
+		if err != nil {
+			log.Fatalw("resolve US equity", "exchange", *exchange, "symbol", *symbol, "error", err)
+		}
+		historical = alpacaHistoricalProvider{provider: alpaca.HistoricalProvider{Client: usClient}}
+		ticks, err = usClient.SubscribeTicks(ctx, []uint32{instrument.InstrumentToken})
+		if err != nil {
+			log.Fatalw("subscribe US equity ticks", "symbol", instrument.TradingSymbol, "error", err)
+		}
+		disconnect = func() { _ = usClient.Disconnect() }
 	}
-	defer kiteClient.Disconnect()
-
-	instrument, err := papertrader.ResolveEquity(ctx, kiteClient, *exchange, *symbol)
-	if err != nil {
-		log.Fatalw("resolve equity instrument", "exchange", *exchange, "symbol", *symbol, "error", err)
-	}
+	defer disconnect()
 
 	if *history1m < 0 || *history5m < 0 || *history1d < 0 {
 		log.Fatal("history windows cannot be negative")
 	}
 	history := papertrader.NewHistoryStore(*history1m, *history5m, *history1d)
-	rawKite := kiteconnect.New(apiKey)
-	rawKite.SetAccessToken(accessToken)
-	if _, err := rawKite.GetUserProfile(); err != nil {
-		if strings.Contains(err.Error(), "Incorrect `api_key` or `access_token`") {
-			log.Fatalw("validate Kite credentials", "error", err, "hint", "Kite access tokens are API-key-specific and typically expire daily; generate a fresh token from the login URL for this exact API key")
-		}
-		log.Fatalw("validate Kite credentials", "error", err)
-	}
-	provider := papertrader.KiteHistoricalProvider{Client: rawKite}
 	now := time.Now()
-	if err := seedHistory(ctx, provider, history, instrument.InstrumentToken, now, *history1m, *history5m, *history1d); err != nil {
-		if strings.Contains(err.Error(), "Incorrect `api_key` or `access_token`") {
-			log.Fatalw("seed historical data", "error", err, "hint", "Kite rejected the access token; generate a fresh token for the same API key and paste that access token, not the one-time request token")
+	if err := seedHistory(ctx, historical, history, instrument.InstrumentToken, now, *history1m, *history5m, *history1d); err != nil {
+		if selectedMarket == papertrader.SupportedMarketIndia && strings.Contains(err.Error(), "Incorrect `api_key` or `access_token`") {
+			log.Fatalw("seed India historical data", "error", err, "hint", "Kite access tokens are API-key-specific and expire daily; generate a fresh token for the same API key")
 		}
 		log.Fatalw("seed historical data", "error", err)
-	}
-
-	ticks, err := kiteClient.SubscribeTicks(ctx, []uint32{instrument.InstrumentToken})
-	if err != nil {
-		log.Fatalw("subscribe equity ticks", "symbol", instrument.TradingSymbol, "error", err)
 	}
 
 	book := newPaperBook(*capital)
@@ -144,7 +185,7 @@ func main() {
 		file, summaryErr := os.Create(filepath.Join(*logDir, runID+"-summary.json"))
 		if summaryErr == nil {
 			_ = json.NewEncoder(file).Encode(map[string]interface{}{
-				"run_id": runID, "mode": "paper", "symbol": instrument.TradingSymbol,
+				"run_id": runID, "mode": "paper", "market": selectedMarket, "exchange": instrument.Exchange, "symbol": instrument.TradingSymbol,
 				"position": position, "account": account,
 			})
 			_ = file.Close()
@@ -194,7 +235,7 @@ func main() {
 		History:       history,
 		Runner:        runner,
 		Snapshots: papertrader.SnapshotBuilder{
-			Instrument: papertrader.InstrumentState{Exchange: instrument.Exchange, TradingSymbol: instrument.TradingSymbol, InstrumentToken: instrument.InstrumentToken},
+			Instrument: papertrader.InstrumentState{Market: selectedMarket, Exchange: instrument.Exchange, TradingSymbol: instrument.TradingSymbol, InstrumentToken: instrument.InstrumentToken},
 			History:    history,
 			// Keep the requested windows high, but cap serialized state so the
 			// TypeSafe request remains below its token budget.
@@ -202,7 +243,7 @@ func main() {
 			Config:          decisionConfig,
 			Position:        book.Position,
 			Account:         book.Account,
-			Session:         sessionFor,
+			Session:         func(ts time.Time) papertrader.SessionState { return sessionFor(selectedMarket, ts) },
 		},
 		OnTick: func(t papertrader.Tick) {
 			if stop := book.CheckStop(t.LastPrice); stop != nil {
@@ -244,7 +285,23 @@ func credentialFingerprint(value string) string {
 	return hex.EncodeToString(digest[:])[:12]
 }
 
-func seedHistory(ctx context.Context, provider papertrader.KiteHistoricalProvider, store *papertrader.HistoryStore, token uint32, now time.Time, oneMinuteBars, fiveMinuteBars, dailyBars int) error {
+// alpacaHistoricalProvider converts the internal US adapter's small bar type
+// into the root package's broker-neutral candle type without an import cycle.
+type alpacaHistoricalProvider struct{ provider alpaca.HistoricalProvider }
+
+func (p alpacaHistoricalProvider) Load(ctx context.Context, token uint32, interval string, from, to time.Time) ([]papertrader.Bar, error) {
+	bars, err := p.provider.Load(ctx, token, interval, from, to)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]papertrader.Bar, 0, len(bars))
+	for _, bar := range bars {
+		result = append(result, papertrader.Bar{Timestamp: bar.Timestamp, Open: bar.Open, High: bar.High, Low: bar.Low, Close: bar.Close, Volume: bar.Volume})
+	}
+	return result, nil
+}
+
+func seedHistory(ctx context.Context, provider papertrader.HistoricalProvider, store *papertrader.HistoryStore, token uint32, now time.Time, oneMinuteBars, fiveMinuteBars, dailyBars int) error {
 	oneMinuteDays := 5
 	if days := (oneMinuteBars+374)/375 + 2; days > oneMinuteDays {
 		oneMinuteDays = days
@@ -270,15 +327,25 @@ func seedHistory(ctx context.Context, provider papertrader.KiteHistoricalProvide
 	return nil
 }
 
-func sessionFor(ts time.Time) papertrader.SessionState {
-	loc, err := time.LoadLocation("Asia/Kolkata")
+func sessionFor(market string, ts time.Time) papertrader.SessionState {
+	zone := "Asia/Kolkata"
+	openHour, openMinute := 9, 15
+	squareHour, squareMinute := 15, 15
+	closeHour, closeMinute := 15, 30
+	if market == papertrader.SupportedMarketUS {
+		zone = "America/New_York"
+		openHour, openMinute = 9, 30
+		squareHour, squareMinute = 15, 55
+		closeHour, closeMinute = 16, 0
+	}
+	loc, err := time.LoadLocation(zone)
 	if err != nil {
 		loc = time.FixedZone("IST", 5*60*60+30*60)
 	}
 	local := ts.In(loc)
-	open := time.Date(local.Year(), local.Month(), local.Day(), 9, 15, 0, 0, loc)
-	squareOff := time.Date(local.Year(), local.Month(), local.Day(), 15, 15, 0, 0, loc)
-	close := time.Date(local.Year(), local.Month(), local.Day(), 15, 30, 0, 0, loc)
+	open := time.Date(local.Year(), local.Month(), local.Day(), openHour, openMinute, 0, 0, loc)
+	squareOff := time.Date(local.Year(), local.Month(), local.Day(), squareHour, squareMinute, 0, 0, loc)
+	close := time.Date(local.Year(), local.Month(), local.Day(), closeHour, closeMinute, 0, 0, loc)
 	phase := "closed"
 	if !local.Before(open) && local.Before(squareOff) {
 		phase = "open"

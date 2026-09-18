@@ -1,15 +1,15 @@
-# Copy this file to a private path and fill credentials through environment
-# variables. This module is paper-only; it has no live-order integration.
-# The command-line runner defaults to the example symbol below.
-instrument:
-  exchange: NSE
-  trading_symbol: RELIANCE
-  interval: 1m
+# Reference values for the paper runner. The current command accepts flags and
+# environment variables; this file is intentionally credential-free.
+market: us                    # india or us
+exchange: NASDAQ              # India venue (NSE/BSE) or US venue label
+symbol: AAPL                  # any supported cash-equity ticker
+paper_only: true              # the only supported execution mode
 
 history:
-  one_minute_bars: 390
-  five_minute_bars: 390
-  daily_bars: 90
+  one_minute_bars: 1000
+  five_minute_bars: 500
+  daily_bars: 180
+  max_state_bytes: 32000
 
 typesafe:
   model: jev-latest
@@ -17,7 +17,7 @@ typesafe:
   max_retries: 1
 
 risk:
-  capital: 10000
+  capital: 100000
   max_position_value_percent: 25
   max_daily_loss_percent: 1
   max_trades_per_day: 5
@@ -26,3 +26,7 @@ risk:
   min_action_confidence: 0.60
   min_buy_support: 0.60
   allow_short: false
+
+# India credentials: KITE_API_KEY, KITE_API_SECRET, KITE_ACCESS_TOKEN
+# US credentials: ALPACA_API_KEY, ALPACA_API_SECRET
+# Shared credential: TYPESAFE_API_KEY

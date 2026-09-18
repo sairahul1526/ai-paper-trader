@@ -1,5 +1,5 @@
 // Package papertrader contains the broker-neutral AI-first equity paper-trading
-// workflow. It intentionally does not import the existing options strategy.
+// workflow shared by every supported market-data provider.
 package papertrader
 
 import (
@@ -9,8 +9,14 @@ import (
 )
 
 const (
-	ExchangeNSE          = "NSE"
-	DefaultTradingSymbol = "RELIANCE"
+	// SupportedMarketIndia and SupportedMarketUS are the dashboard/runner
+	// market selectors. Providers may expose additional venues within a market.
+	SupportedMarketIndia = "india"
+	SupportedMarketUS    = "us"
+	DefaultMarket        = SupportedMarketIndia
+	DefaultExchangeIndia = "NSE"
+	DefaultTradingSymbol = "AAPL"
+	ExchangeNSE          = DefaultExchangeIndia // compatibility alias for callers using the India default
 
 	ActionBuy      Action = "buy"
 	ActionHold     Action = "hold"
@@ -121,6 +127,7 @@ type HistoricalContext struct {
 }
 
 type InstrumentState struct {
+	Market          string `json:"market,omitempty"`
 	Exchange        string `json:"exchange"`
 	TradingSymbol   string `json:"trading_symbol"`
 	InstrumentToken uint32 `json:"instrument_token"`

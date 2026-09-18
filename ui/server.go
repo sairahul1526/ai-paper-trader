@@ -43,6 +43,9 @@ const (
 
 type runRequest struct {
 	Mode       string  `json:"mode"`
+	Market     string  `json:"market"`
+	Exchange   string  `json:"exchange"`
+	Symbol     string  `json:"symbol"`
 	Capital    float64 `json:"capital"`
 	History1m  int     `json:"history_1m"`
 	History5m  int     `json:"history_5m"`
@@ -64,11 +67,16 @@ type runRequest struct {
 	KiteAPIKey      string `json:"kite_api_key"`
 	KiteAPISecret   string `json:"kite_api_secret"`
 	KiteAccessToken string `json:"kite_access_token"`
+	AlpacaAPIKey    string `json:"alpaca_api_key"`
+	AlpacaAPISecret string `json:"alpaca_api_secret"`
 	TypeSafeAPIKey  string `json:"typesafe_api_key"`
 }
 
 type configView struct {
 	Mode                    string                          `json:"mode"`
+	Market                  string                          `json:"market"`
+	Exchange                string                          `json:"exchange"`
+	Symbol                  string                          `json:"symbol"`
 	PaperOnly               bool                            `json:"paper_only"`
 	Capital                 float64                         `json:"capital"`
 	History1m               int                             `json:"history_1m"`
@@ -88,6 +96,8 @@ type configView struct {
 	KiteAPIKeySet           bool                            `json:"kite_api_key_set"`
 	KiteAPISecretSet        bool                            `json:"kite_api_secret_set"`
 	KiteAccessTokenSet      bool                            `json:"kite_access_token_set"`
+	AlpacaAPIKeySet         bool                            `json:"alpaca_api_key_set"`
+	AlpacaAPISecretSet      bool                            `json:"alpaca_api_secret_set"`
 	TypeSafeAPIKeySet       bool                            `json:"typesafe_api_key_set"`
 	CredentialDiagnostics   map[string]credentialDiagnostic `json:"credential_diagnostics"`
 }
@@ -115,13 +125,15 @@ func credentialDiagnosticsFor(r runRequest) map[string]credentialDiagnostic {
 		"kite_api_key":      credentialDiagnosticFor(r.KiteAPIKey),
 		"kite_api_secret":   credentialDiagnosticFor(r.KiteAPISecret),
 		"kite_access_token": credentialDiagnosticFor(r.KiteAccessToken),
+		"alpaca_api_key":    credentialDiagnosticFor(r.AlpacaAPIKey),
+		"alpaca_api_secret": credentialDiagnosticFor(r.AlpacaAPISecret),
 		"typesafe_api_key":  credentialDiagnosticFor(r.TypeSafeAPIKey),
 	}
 }
 
 func defaultRunRequest() runRequest {
 	return runRequest{
-		Mode: "paper", Capital: defaultCapital,
+		Mode: "paper", Market: papertrader.SupportedMarketUS, Exchange: "NASDAQ", Symbol: papertrader.DefaultTradingSymbol, Capital: defaultCapital,
 		History1m: defaultHistory1m, History5m: defaultHistory5m, History1d: defaultHistory1d,
 		StateBytes: defaultStateBytes, Model: "jev-latest", TimeoutMs: 8000, MaxRetries: 1,
 		MaxPositionValuePercent: 25, MaxDailyLossPercent: 1, MaxTradesPerDay: 5,
@@ -131,7 +143,7 @@ func defaultRunRequest() runRequest {
 
 func (r runRequest) view() configView {
 	return configView{
-		Mode: r.Mode, PaperOnly: true, Capital: r.Capital,
+		Mode: r.Mode, Market: r.Market, Exchange: r.Exchange, Symbol: r.Symbol, PaperOnly: true, Capital: r.Capital,
 		History1m: r.History1m, History5m: r.History5m, History1d: r.History1d,
 		MaxHistoryBytes: r.StateBytes, Model: r.Model, TimeoutMs: r.TimeoutMs, MaxRetries: r.MaxRetries,
 		MaxPositionValuePercent: r.MaxPositionValuePercent, MaxDailyLossPercent: r.MaxDailyLossPercent,
@@ -139,7 +151,7 @@ func (r runRequest) view() configView {
 		MaxSpreadPercent: r.MaxSpreadPercent, MinActionConfidence: r.MinActionConfidence,
 		MinBuySupport: r.MinBuySupport,
 		KiteAPIKeySet: r.KiteAPIKey != "", KiteAPISecretSet: r.KiteAPISecret != "",
-		KiteAccessTokenSet: r.KiteAccessToken != "", TypeSafeAPIKeySet: r.TypeSafeAPIKey != "",
+		KiteAccessTokenSet: r.KiteAccessToken != "", AlpacaAPIKeySet: r.AlpacaAPIKey != "", AlpacaAPISecretSet: r.AlpacaAPISecret != "", TypeSafeAPIKeySet: r.TypeSafeAPIKey != "",
 		CredentialDiagnostics: credentialDiagnosticsFor(r),
 	}
 }
@@ -265,6 +277,15 @@ func validateRunRequest(r *runRequest) error {
 	if r.Mode != "paper" {
 		return errors.New("only paper mode is available; live trading is disabled")
 	}
+	r.Market = strings.ToLower(strings.TrimSpace(r.Market))
+	if r.Market != papertrader.SupportedMarketIndia && r.Market != papertrader.SupportedMarketUS {
+		return errors.New("market must be india or us")
+	}
+	r.Exchange = strings.ToUpper(strings.TrimSpace(r.Exchange))
+	r.Symbol = strings.ToUpper(strings.TrimSpace(r.Symbol))
+	if r.Exchange == "" || r.Symbol == "" {
+		return errors.New("exchange/venue and symbol are required")
+	}
 	if r.Capital <= 0 || r.Capital > 1e12 {
 		return errors.New("capital must be greater than zero")
 	}
@@ -283,14 +304,20 @@ func validateRunRequest(r *runRequest) error {
 	if r.MaxRetries < 0 || r.MaxRetries > 5 {
 		return errors.New("max retries must be between 0 and 5")
 	}
-	if r.Mode == "paper" && (r.KiteAPIKey == "" || r.KiteAPISecret == "" || r.KiteAccessToken == "" || r.TypeSafeAPIKey == "") {
-		return errors.New("paper mode needs all four credentials; values are kept in memory only")
+	if r.TypeSafeAPIKey == "" {
+		return errors.New("paper mode needs a TypeSafe API key")
+	}
+	if r.Market == papertrader.SupportedMarketIndia && (r.KiteAPIKey == "" || r.KiteAPISecret == "" || r.KiteAccessToken == "") {
+		return errors.New("India paper mode needs Kite API key, API secret, and access token")
+	}
+	if r.Market == papertrader.SupportedMarketUS && (r.AlpacaAPIKey == "" || r.AlpacaAPISecret == "") {
+		return errors.New("US paper mode needs Alpaca API key and secret")
 	}
 	return nil
 }
 
 func runnerArgs(r runRequest, runDir string) []string {
-	args := []string{"-paper=true", "-capital=" + strconv.FormatFloat(r.Capital, 'f', -1, 64), "-log-dir=" + runDir,
+	args := []string{"-paper=true", "-market=" + r.Market, "-exchange=" + r.Exchange, "-symbol=" + r.Symbol, "-capital=" + strconv.FormatFloat(r.Capital, 'f', -1, 64), "-log-dir=" + runDir,
 		"-history-1m=" + strconv.Itoa(r.History1m), "-history-5m=" + strconv.Itoa(r.History5m), "-history-1d=" + strconv.Itoa(r.History1d),
 		"-max-history-bytes=" + strconv.Itoa(r.StateBytes), "-typesafe-model=" + r.Model,
 		"-typesafe-timeout=" + strconv.Itoa(r.TimeoutMs) + "ms", "-typesafe-retries=" + strconv.Itoa(r.MaxRetries),
@@ -306,13 +333,13 @@ func runnerArgs(r runRequest, runDir string) []string {
 func runnerEnv(r runRequest) []string {
 	env := make([]string, 0, len(os.Environ())+4)
 	for _, item := range os.Environ() {
-		if strings.HasPrefix(item, "KITE_API_") || strings.HasPrefix(item, "TYPESAFE_API_KEY=") {
+		if strings.HasPrefix(item, "KITE_API_") || strings.HasPrefix(item, "ALPACA_API_") || strings.HasPrefix(item, "TYPESAFE_API_KEY=") {
 			continue
 		}
 		env = append(env, item)
 	}
 	if r.Mode == "paper" {
-		env = append(env, "KITE_API_KEY="+r.KiteAPIKey, "KITE_API_SECRET="+r.KiteAPISecret, "KITE_ACCESS_TOKEN="+r.KiteAccessToken, "TYPESAFE_API_KEY="+r.TypeSafeAPIKey)
+		env = append(env, "KITE_API_KEY="+r.KiteAPIKey, "KITE_API_SECRET="+r.KiteAPISecret, "KITE_ACCESS_TOKEN="+r.KiteAccessToken, "ALPACA_API_KEY="+r.AlpacaAPIKey, "ALPACA_API_SECRET="+r.AlpacaAPISecret, "TYPESAFE_API_KEY="+r.TypeSafeAPIKey)
 	}
 	return env
 }
@@ -437,12 +464,23 @@ func normalizeRunCredentials(r *runRequest) {
 	r.KiteAPIKey = strings.TrimSpace(r.KiteAPIKey)
 	r.KiteAPISecret = strings.TrimSpace(r.KiteAPISecret)
 	r.KiteAccessToken = strings.TrimSpace(r.KiteAccessToken)
+	r.AlpacaAPIKey = strings.TrimSpace(r.AlpacaAPIKey)
+	r.AlpacaAPISecret = strings.TrimSpace(r.AlpacaAPISecret)
 	r.TypeSafeAPIKey = strings.TrimSpace(r.TypeSafeAPIKey)
 }
 
 func mergeRunDefaults(r *runRequest, d runRequest) {
 	if r.Mode == "" {
 		r.Mode = d.Mode
+	}
+	if r.Market == "" {
+		r.Market = d.Market
+	}
+	if r.Exchange == "" {
+		r.Exchange = d.Exchange
+	}
+	if r.Symbol == "" {
+		r.Symbol = d.Symbol
 	}
 	if r.Capital == 0 {
 		r.Capital = d.Capital
