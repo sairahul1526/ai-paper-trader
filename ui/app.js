@@ -1,6 +1,8 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   let state = null;
+  let hasLocalForm = false;
+  let localMarketChosen = false;
 
   const html = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
   const number = (value, digits = 2) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(String(document.querySelector('[name="market"]')?.value || 'india').toLowerCase() === 'us' ? 'en-US' : 'en-IN', { maximumFractionDigits: digits }) : '—';
@@ -22,12 +24,38 @@
   const actionClass = (action) => String(action || '').replace(/[^a-z_]/g, '');
   const formStorageKey = 'ai-paper-trader.form.v1';
   const credentialFields = ['kite_api_key', 'kite_api_secret', 'kite_access_token', 'alpaca_api_key', 'alpaca_api_secret', 'typesafe_api_key'];
+  const credentialFieldsByMarket = {
+    india: ['kite_api_key', 'kite_api_secret', 'kite_access_token', 'typesafe_api_key'],
+    us: ['alpaca_api_key', 'alpaca_api_secret', 'typesafe_api_key'],
+  };
 
   function selectedMarket() { return String(document.querySelector('[name="market"]')?.value || 'india').toLowerCase(); }
-  function requiredCredentialFields() { return selectedMarket() === 'us' ? ['alpaca_api_key', 'alpaca_api_secret', 'typesafe_api_key'] : ['kite_api_key', 'kite_api_secret', 'kite_access_token', 'typesafe_api_key']; }
+  function requiredCredentialFields(market = selectedMarket()) { return credentialFieldsByMarket[market] || credentialFieldsByMarket.india; }
+  function credentialValues(values, market = selectedMarket()) {
+    const stored = values?.credentials?.[market];
+    if (stored) return stored;
+    // Migrate values saved by the earlier single-bucket UI into the active
+    // market bucket the first time this page is opened.
+    const migrated = {};
+    requiredCredentialFields(market).forEach((key) => { if (values?.[key]) migrated[key] = values[key]; });
+    return migrated;
+  }
+  function restoreCredentialFields(values, market = selectedMarket()) {
+    const stored = credentialValues(values, market);
+    requiredCredentialFields(market).forEach((key) => {
+      const input = document.querySelector(`[name="${key}"]`);
+      if (input) {
+        // Switching tabs should never leave another market's secret in the
+        // active form. Saved credentials are restored only for this market.
+        input.value = String(stored[key] || '');
+        input.type = 'password';
+      }
+    });
+  }
 
-  function setMarket(market, resetFields = true) {
+  function setMarket(market, resetFields = true, source = 'system') {
     market = market === 'us' ? 'us' : 'india';
+    if (source === 'user') localMarketChosen = true;
     const input = document.querySelector('[name="market"]');
     const previous = input?.value;
     if (input) input.value = market;
@@ -44,6 +72,9 @@
       exchange.value = market === 'us' ? 'NASDAQ' : 'NSE';
       symbol.value = market === 'us' ? 'AAPL' : 'INFY';
     }
+    if (source === 'user' || source === 'restore') {
+      try { restoreCredentialFields(JSON.parse(localStorage.getItem(formStorageKey) || '{}'), market); } catch (_) {}
+    }
     $('topTicker').value = symbol?.value || '';
     $('setupGuide').innerHTML = market === 'us'
       ? '<strong>US setup</strong><span>1. Create a free Alpaca paper account and copy its paper API key and secret. 2. Enter a US venue and ticker (for example NASDAQ / AAPL). 3. Enter the TypeSafe key and save credentials. 4. Click Run paper loop. Free real-time coverage is IEX; historical bars use Alpaca’s IEX feed.</span>'
@@ -52,7 +83,7 @@
   }
 
   function credentialInputs() {
-    return credentialFields.map((key) => document.querySelector(`[name="${key}"]`)).filter(Boolean);
+    return requiredCredentialFields().map((key) => document.querySelector(`[name="${key}"]`)).filter(Boolean);
   }
 
   function updateCredentialStatus() {
@@ -61,7 +92,8 @@
     let values = {};
     try { values = JSON.parse(localStorage.getItem(formStorageKey) || '{}'); } catch (_) {}
     const required = requiredCredentialFields();
-    const saved = values.remember_credentials === true && required.every((key) => String(values[key] || '').trim());
+    const stored = credentialValues(values);
+    const saved = values.remember_credentials === true && required.every((key) => String(stored[key] || '').trim());
     const entered = required.every((key) => String(document.querySelector(`[name="${key}"]`)?.value || '').trim());
     status.textContent = saved ? 'Saved locally · values hidden' : entered ? 'Entered · not saved' : 'Not saved in this browser';
   }
@@ -75,10 +107,11 @@
 
   function persistFormValues(includeCredentials = false) {
     try {
+      hasLocalForm = true;
       let values = {};
       try { values = JSON.parse(localStorage.getItem(formStorageKey) || '{}'); } catch (_) {}
       document.querySelectorAll('#runForm [name]').forEach((input) => {
-        if (includeCredentials || !credentialFields.includes(input.name)) values[input.name] = input.value;
+        if (!credentialFields.includes(input.name)) values[input.name] = input.value;
       });
       const rememberCredentials = includeCredentials || $('rememberCredentials').checked;
       values.remember_credentials = rememberCredentials;
@@ -86,7 +119,14 @@
       values.regime_filter = $('regimeFilter').value;
       values.confidence_filter = $('confidenceFilter').value;
       values.log_lines = $('logLines').value;
-      if (!rememberCredentials) credentialFields.forEach((key) => { delete values[key]; });
+      values.credentials = values.credentials || {};
+      if (includeCredentials) {
+        values.credentials[selectedMarket()] = {};
+        requiredCredentialFields().forEach((key) => { values.credentials[selectedMarket()][key] = String(document.querySelector(`[name="${key}"]`)?.value || '').trim(); });
+      } else if (!rememberCredentials) {
+        delete values.credentials[selectedMarket()];
+      }
+      credentialFields.forEach((key) => { delete values[key]; });
       localStorage.setItem(formStorageKey, JSON.stringify(values));
       updateCredentialStatus();
     } catch (_) {
@@ -109,9 +149,11 @@
     setTimeout(upgradeLegacyHistoryBudget, 250);
     try {
       const values = JSON.parse(localStorage.getItem(formStorageKey) || '{}');
+      hasLocalForm = Object.keys(values).length > 0;
+      localMarketChosen = Boolean(values.market);
       const migrateHistoryBudget = Number(values.max_history_bytes) === 16000;
       Object.entries(values).forEach(([key, value]) => {
-        if (key === 'remember_credentials') return;
+        if (key === 'remember_credentials' || key === 'credentials' || credentialFields.includes(key)) return;
         const input = document.querySelector(`#runForm [name="${key}"]`);
         if (input) input.value = value;
       });
@@ -127,7 +169,19 @@
         values.max_history_bytes = '32000';
         localStorage.setItem(formStorageKey, JSON.stringify(values));
       }
-      setMarket(values.market || 'us', false);
+      const restoredMarket = values.market || 'us';
+      setMarket(restoredMarket, false, 'restore');
+      // Upgrade the pre-market-split credential format once, preserving the
+      // selected market and removing the old flat secret fields.
+      if (!values.credentials) {
+        const migratedCredentials = credentialValues(values, restoredMarket);
+        if (Object.keys(migratedCredentials).length) {
+          values.credentials = { [restoredMarket]: migratedCredentials };
+          credentialFields.forEach((key) => { delete values[key]; });
+          localStorage.setItem(formStorageKey, JSON.stringify(values));
+        }
+      }
+      restoreCredentialFields(values);
       updateCredentialStatus();
     } catch (_) {
       // Ignore malformed or unavailable local state and keep safe defaults.
@@ -142,7 +196,7 @@
   function clearSavedValues() {
     try { localStorage.removeItem(formStorageKey); } catch (_) {}
     document.querySelectorAll('#runForm [name]').forEach((input) => { input.value = ''; });
-    credentialInputs().forEach((input) => { input.type = 'password'; });
+    credentialFields.forEach((key) => { const input = document.querySelector(`[name="${key}"]`); if (input) { input.value = ''; input.type = 'password'; } });
     $('showCredentialsButton').textContent = 'Show values';
     $('rememberCredentials').checked = false;
     $('actionFilter').value = 'all';
@@ -150,10 +204,12 @@
     $('confidenceFilter').value = '0';
     $('logLines').value = '80';
     $('kiteUrlResult').textContent = '';
-    setMarket('us', true);
+    setMarket('us', true, 'system');
     document.querySelector('[name="exchange"]').value = 'NASDAQ';
     document.querySelector('[name="symbol"]').value = 'AAPL';
     $('topTicker').value = 'AAPL';
+    hasLocalForm = true;
+    localMarketChosen = true;
     updateCredentialStatus();
     showMessage('Saved dashboard values cleared from this browser.', true);
   }
@@ -198,10 +254,17 @@
     const liveTick = live.tick || {};
     const runner = data.runner || {};
     const config = data.config || {};
-    if (config.market) setMarket(config.market, false);
-    if (config.symbol && document.querySelector('[name="symbol"]')) { document.querySelector('[name="symbol"]').value = config.symbol; $('topTicker').value = config.symbol; }
-    if (config.exchange && document.querySelector('[name="exchange"]')) document.querySelector('[name="exchange"]').value = config.exchange;
     const running = Boolean(runner.running);
+    // A stopped dashboard may have a server-side default from an older run.
+    // Once the user has selected/edited a local form value, never overwrite it
+    // on the one-second refresh; a running process remains the source of truth.
+    // The browser's saved form is authoritative after the first edit. The
+    // API state may still expose the runner's defaults, so never let a
+    // one-second refresh switch the selected market or ticker back.
+    const syncServerConfig = !hasLocalForm;
+    if (syncServerConfig && config.market) setMarket(config.market, false, 'system');
+    if (syncServerConfig && config.symbol && document.querySelector('[name="symbol"]')) { document.querySelector('[name="symbol"]').value = config.symbol; $('topTicker').value = config.symbol; }
+    if (syncServerConfig && config.exchange && document.querySelector('[name="exchange"]')) document.querySelector('[name="exchange"]').value = config.exchange;
     $('runnerBadge').textContent = running ? `Running · ${runner.mode || 'paper'}` : 'Stopped';
     $('runnerBadge').className = `badge ${running ? 'success' : 'neutral'}`;
     $('streamText').textContent = running ? (data.market_latest ? 'Live tick stream · AI every minute' : (runner.owned ? 'Runner process connected' : 'Paper stream detected')) : 'No runner process';
@@ -432,6 +495,9 @@
   function collectForm() {
     const form = $('runForm'); const payload = {};
     new FormData(form).forEach((value, key) => { payload[key] = credentialFields.includes(key) ? String(value).trim() : value; });
+    // Hidden provider fields belong to the other market and must not be sent
+    // to the runner (or accidentally overwrite its credentials).
+    credentialFields.forEach((key) => { if (!requiredCredentialFields().includes(key)) delete payload[key]; });
     payload.market = selectedMarket();
     payload.symbol = String($('topTicker').value || payload.symbol || '').trim().toUpperCase();
     document.querySelector('[name="symbol"]').value = payload.symbol;
@@ -447,9 +513,10 @@
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'start failed');
       persistFormValues();
-      if (!$('rememberCredentials').checked) credentialFields.forEach((key) => { const input = document.querySelector(`[name="${key}"]`); if (input) input.value = ''; });
+      if (!$('rememberCredentials').checked) requiredCredentialFields().forEach((key) => { const input = document.querySelector(`[name="${key}"]`); if (input) input.value = ''; });
       updateCredentialStatus();
       showMessage($('rememberCredentials').checked ? 'Paper runner started. Saved values remain available on this browser.' : 'Paper runner started. Credentials were cleared from the form.', true);
+      $('configDialog').close();
       await refresh();
     } catch (error) { showMessage(error.message, false); }
     button.disabled = false; button.textContent = 'Run paper loop';
@@ -509,11 +576,14 @@
   $('saveCredentialsButton').addEventListener('click', saveCredentials);
   $('showCredentialsButton').addEventListener('click', toggleCredentials);
   $('clearSavedButton').addEventListener('click', clearSavedValues);
-  document.querySelectorAll('.market-tab').forEach((button) => button.addEventListener('click', () => setMarket(button.dataset.market, true)));
+  document.querySelectorAll('.market-tab').forEach((button) => button.addEventListener('click', () => setMarket(button.dataset.market, true, 'user')));
   $('topTicker').addEventListener('input', (event) => { document.querySelector('[name="symbol"]').value = event.target.value.toUpperCase(); persistFormValues(); });
   document.querySelector('[name="symbol"]').addEventListener('input', (event) => { $('topTicker').value = event.target.value.toUpperCase(); });
   restoreFormValues();
   setMarket(selectedMarket(), false);
+  $('configButton').addEventListener('click', () => $('configDialog').showModal());
+  $('closeConfigButton').addEventListener('click', () => $('configDialog').close());
+  $('configDialog').addEventListener('click', (event) => { if (event.target === $('configDialog')) $('configDialog').close(); });
   window.addEventListener('pageshow', normalizeLegacyHistoryBudgetInput);
   setTimeout(normalizeLegacyHistoryBudgetInput, 1000);
   document.querySelectorAll('#runForm [name]').forEach((input) => { input.addEventListener('input', persistFormValues); input.addEventListener('change', persistFormValues); });

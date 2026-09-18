@@ -10,6 +10,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body { margin: 0; color: var(--ink); background: var(--white); font: 13px/1.45 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 button, input, select { font: inherit; }
@@ -44,6 +45,16 @@ h3 { font-size: 13px; font-weight: 600; }
 .section { padding-top: 35px; }
 .first-section { padding-top: 30px; }
 .last-section { padding-bottom: 16px; }
+.config-dialog { width: min(1180px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 1px solid var(--line); background: var(--white); color: var(--ink); box-shadow: 0 24px 80px rgba(0,0,0,.18); }
+.config-dialog::backdrop { background: rgba(17,17,19,.28); backdrop-filter: blur(2px); }
+.config-dialog-card { max-height: calc(100vh - 32px); overflow: auto; padding: 20px 22px 22px; }
+.dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.dialog-close { width: 30px; height: 30px; border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 3px; font-size: 22px; line-height: 1; }
+.dialog-close:hover { color: var(--ink); background: var(--soft); }
+.dialog-market-tabs { display: flex; gap: 6px; padding: 14px 0 2px; }
+.dialog-market-tabs .market-tab { flex: 0 0 auto; }
+.config-section { padding-top: 18px; }
+.config-section > .section-heading { display: none; }
 .section-heading, .panel-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
 .section-heading { margin-bottom: 16px; }
 .section-heading > .subtle { padding-bottom: 3px; }
