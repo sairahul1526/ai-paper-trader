@@ -128,6 +128,7 @@ fieldset > label { margin-bottom: 11px; }
 .legend-note { margin-left: 6px; font-weight: 400; }
 .credentials { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 26px; }
 .credential-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.common-credential { padding-top: 14px; }
 .request-token-label { max-width: 360px; margin-top: 12px; }
 .url-result { font-size: 11px; color: var(--green); overflow-wrap: anywhere; }
 .credential-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
