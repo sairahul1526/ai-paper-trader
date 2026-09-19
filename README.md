@@ -38,17 +38,11 @@ it never places, modifies, or cancels a live broker order.
 - **Credential hygiene:** raw credentials are never logged or returned by the
   state API; only set/length/hash-prefix diagnostics are shown.
 
-## Screenshots
+## Demo
 
-The local console keeps market observations, TypeSafe decisions, paper-trade
-results, charts, and audit logs on one page.
-
-![AI Paper Trader overview](docs/screenshots/overview.png)
-
-The **Configure** dialog keeps India and US credentials separate and exposes
-the paper-only run controls without putting secrets in the shell.
-
-![AI Paper Trader configuration dialog](docs/screenshots/configure.png)
+Watch the [AI Paper Trader dashboard demo](docs/demo/ai-paper-trader-demo.mov)
+to see the market overview, interactive charts, TypeSafe decisions, paper
+trades, logs, and configuration flow in one page.
 
 ## How it works
 
