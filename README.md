@@ -38,6 +38,18 @@ it never places, modifies, or cancels a live broker order.
 - **Credential hygiene:** raw credentials are never logged or returned by the
   state API; only set/length/hash-prefix diagnostics are shown.
 
+## Screenshots
+
+The local console keeps market observations, TypeSafe decisions, paper-trade
+results, charts, and audit logs on one page.
+
+![AI Paper Trader overview](docs/screenshots/overview.png)
+
+The **Configure** dialog keeps India and US credentials separate and exposes
+the paper-only run controls without putting secrets in the shell.
+
+![AI Paper Trader configuration dialog](docs/screenshots/configure.png)
+
 ## How it works
 
 1. The selected adapter resolves the configured cash-equity instrument.
@@ -74,19 +86,21 @@ it never places, modifies, or cancels a live broker order.
 ## Requirements
 
 - Go 1.21 or newer.
-- A TypeSafe API key: create one in the [TypeSafe console](https://console.typesafe.ai/).
-- For India, a [Kite Connect](https://kite.trade/) app and daily access token.
-- For US, an [Alpaca paper account](https://app.alpaca.markets/signup) with a
-  paper/basic API key and secret.
+- A [TypeSafe](https://console.typesafe.ai/) account.
+- For India, a [Kite Connect](https://kite.trade/) app.
+- For US, an [Alpaca paper account](https://app.alpaca.markets/signup).
 
-Do not commit credentials, place them in `config.example.yaml`, or paste them
-into an issue. The example config is intentionally credential-free.
+Credentials are entered in the dashboard's **Configure** dialog. Do not commit
+them, place them in `config.example.yaml`, or paste them into an issue. The
+example config is intentionally credential-free.
 
 ## Configuration
 
-The command is configured with flags; the dashboard stores non-secret form
-values in the current browser's local storage. `config.example.yaml` is a
-credential-free reference for the same settings.
+The dashboard exposes these settings and stores non-secret form values in the
+current browser's local storage. `config.example.yaml` is a credential-free
+reference for the same settings. The lower-level paper-runner command accepts
+corresponding flags for advanced automation, but the dashboard is the supported
+entry point for normal use.
 
 | Setting | Meaning | Example |
 | --- | --- | --- |
@@ -107,63 +121,25 @@ credential-free reference for the same settings.
 The UI persists these settings as they change. Use **Clear saved values** to
 remove the browser-local state.
 
-## Environment variables
-
-The runner reads provider credentials from the environment. The dashboard
-accepts the same values in its credential form and passes them only to the
-local child process when **Run paper loop** is clicked.
-
-| Market | Variable | Where to obtain it |
-| --- | --- | --- |
-| India | `KITE_API_KEY` | Kite Connect app's API key |
-| India | `KITE_API_SECRET` | Kite Connect app's API secret |
-| India | `KITE_ACCESS_TOKEN` | Daily token returned after request-token exchange |
-| US | `ALPACA_API_KEY` | Alpaca paper account API keys page |
-| US | `ALPACA_API_SECRET` | Alpaca paper account API keys page |
-| US (optional) | `ALPACA_FEED` | `iex` by default; use a separately entitled feed such as `sip` only when permitted |
-| US (optional) | `ALPACA_DATA_URL` / `ALPACA_STREAM_URL` | Override endpoints for a compatible Alpaca deployment |
-| Both | `TYPESAFE_API_KEY` | TypeSafe console API keys page |
-
-Example shell setup (use a private shell/session, never commit this file):
-
-```bash
-export TYPESAFE_API_KEY='…'
-
-# India session
-export KITE_API_KEY='…'
-export KITE_API_SECRET='…'
-export KITE_ACCESS_TOKEN='…'
-
-# Or US session
-export ALPACA_API_KEY='…'
-export ALPACA_API_SECRET='…'
-```
-
-The application logs only whether each credential is set, its character count,
-and a short SHA-256 prefix for debugging mismatched values. It never logs the
-credential itself.
-
 ## Run from the command line
+
+The dashboard is started from the command line, but credentials are supplied
+through its **Configure** dialog rather than shell exports or README snippets.
+This keeps secrets out of terminal history and makes the India/US credential
+sets independent.
 
 ```bash
 git clone <your-fork-url>
 cd ai-paper-trader
 go test ./...
-
-# India / Kite
-KITE_API_KEY='…' KITE_API_SECRET='…' KITE_ACCESS_TOKEN='…' \
-TYPESAFE_API_KEY='…' \
-go run ./cmd/paper-trader \
-  -paper=true -market=india -exchange=NSE -symbol=INFY
-
-# US / Alpaca IEX data
-ALPACA_API_KEY='…' ALPACA_API_SECRET='…' TYPESAFE_API_KEY='…' \
-go run ./cmd/paper-trader \
-  -paper=true -market=us -exchange=NASDAQ -symbol=AAPL
+go run ./ui
 ```
 
-The guard is intentional: `-paper=false` exits before a provider connection.
-There is no live-mode flag, live order client, or hidden order fallback.
+Open <http://127.0.0.1:8787>, choose **India** or **US**, enter the provider
+credentials and TypeSafe key in **Configure**, then click **Run paper loop**.
+The UI passes credentials only to the local paper-runner child process. The
+guard is intentional: `-paper=false` exits before a provider connection. There
+is no live-mode flag, live order client, or hidden order fallback.
 
 ## Run from the dashboard
 
