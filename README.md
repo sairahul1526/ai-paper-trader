@@ -40,9 +40,15 @@ it never places, modifies, or cancels a live broker order.
 
 ## Demo
 
-Watch the [AI Paper Trader dashboard demo](docs/demo/ai-paper-trader-demo.mov)
-to see the market overview, interactive charts, TypeSafe decisions, paper
-trades, logs, and configuration flow in one page.
+Watch the AI Paper Trader dashboard demo. The MP4 is encoded for browser
+playback and is hosted from the repository's raw GitHub URL:
+
+<video controls muted playsinline preload="metadata" width="100%" src="https://github.com/sairahul1526/ai-paper-trader/raw/refs/heads/main/docs/demo/ai-paper-trader-demo.mp4">
+  <a href="https://github.com/sairahul1526/ai-paper-trader/raw/refs/heads/main/docs/demo/ai-paper-trader-demo.mp4">Play or download the dashboard demo</a>
+</video>
+
+The demo shows the market overview, interactive charts, TypeSafe decisions,
+paper trades, logs, and configuration flow in one page.
 
 ## How it works
 
